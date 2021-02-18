@@ -1,15 +1,16 @@
 #!/bin/bash
 
 # set -euf -o pipefail
-set -o pipefail
+set -euo pipefail
 
 URL="$1"
 repo_name="$(basename "$URL" ".${URL##*.}")"
-[ -n "$2" ] && repo_name="$2"
+
+[[ $# == 2 ]] && repo_name="$2"
 
 mkdir -p "$repo_name"
 gixp \
-    --progress \
+    --verbose \
     pack-receive "$URL" \
     --protocol 2 \
     --refs-directory "$repo_name" \
@@ -19,25 +20,19 @@ mkdir -p "$repo_name/.git/objects/pack"
 mv "$repo_name"/*.{pack,idx} "$repo_name/.git/objects/pack"
 mv "$repo_name"/{HEAD,refs} "$repo_name/.git"
 
-main_branch_name="$(git -C "$repo_name" remote show "$URL" | grep 'HEAD branch' | cut -d' ' -f5)"
-
-git -C "$repo_name" checkout "$main_branch_name"
-
-echo \
-"[core]
-    repositoryformatversion = 0
-    filemode = true
-    bare = false
-    logallrefupdates = true
-[remote \"origin\"]
-    url = $URL
-    fetch = +refs/heads/*:refs/remotes/origin/*
-[branch \"$main_branch_name\"]
-    remote = origin
-    merge = refs/heads/$main_branch_name
-[pull]
-    rebase = false" > "$repo_name"/.git/config
+gitr="git -C $repo_name"
+main_branch_name="$($gitr remote show "$URL" | grep 'HEAD branch' | cut -d' ' -f5)"
+$gitr checkout "$main_branch_name"
 
 
+gitc="$gitr config --local"
+$gitc core.filemode true
+$gitc core.bare false
+$gitc core.logallrefupdates true
+$gitc remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+$gitc branch."$main_branch_name".remote "origin"
+$gitc branch."$main_branch_name".merge "refs/heads/$main_branch_name"
+$gitc pull.rebase false
+$gitr remote set-url --add origin "$URL"
 
-git -C "$repo_name" pull
+$gitr pull
