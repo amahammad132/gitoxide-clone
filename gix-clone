@@ -1,12 +1,22 @@
 #!/bin/bash
 
-# set -euf -o pipefail
 set -euo pipefail
+
+
 
 URL="$1"
 repo_name="$(basename "$URL" ".${URL##*.}")"
 
 [[ $# == 2 ]] && repo_name="$2"
+
+if [ -d "$repo_name" ]; then
+    echo 'repository already exists!'
+    exit 1
+fi
+
+
+start=`date +%s`
+
 
 mkdir -p "$repo_name"
 gixp \
@@ -14,25 +24,30 @@ gixp \
     pack-receive "$URL" \
     --protocol 2 \
     --refs-directory "$repo_name" \
-    "$repo_name"
+    "$repo_name" \
+    | sed -e '/refs\|index:\|pack:/d'
 
+echo "Converting to non-bare repo..."
 mkdir -p "$repo_name/.git/objects/pack"
 mv "$repo_name"/*.{pack,idx} "$repo_name/.git/objects/pack"
 mv "$repo_name"/{HEAD,refs} "$repo_name/.git"
 
 gitr="git -C $repo_name"
-main_branch_name="$($gitr remote show "$URL" | grep 'HEAD branch' | cut -d' ' -f5)"
-$gitr checkout "$main_branch_name"
+main_branch="$($gitr remote show "$URL" | grep 'HEAD branch' | cut -d' ' -f5)"
 
+$gitr checkout "$main_branch" 2>/dev/null
+echo "Conversion successful"
 
 gitc="$gitr config --local"
 $gitc core.filemode true
 $gitc core.bare false
 $gitc core.logallrefupdates true
 $gitc remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-$gitc branch."$main_branch_name".remote "origin"
-$gitc branch."$main_branch_name".merge "refs/heads/$main_branch_name"
+$gitc branch."$main_branch".remote "origin"
+$gitc branch."$main_branch".merge "refs/heads/$main_branch"
 $gitc pull.rebase false
 $gitr remote set-url --add origin "$URL"
 
-$gitr pull
+# $gitr pull | sed 's/Already up to date.//g'
+
+echo "Finished clone in $(( $(date +%s) - start ))s"
